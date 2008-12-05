@@ -1,0 +1,2 @@
+set search_path = public;
+create or replace function trgm_sml(text, text) returns float8 as 'MODULE_PATHNAME', 'trgm_sml' language c strict;
