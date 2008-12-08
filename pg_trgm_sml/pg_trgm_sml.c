@@ -19,7 +19,9 @@
 PG_MODULE_MAGIC;
 
 PG_FUNCTION_INFO_V1(trgm_sml);
+PG_FUNCTION_INFO_V1(trgm_tag);
 Datum trgm_sml(PG_FUNCTION_ARGS);
+Datum trgm_tag(PG_FUNCTION_ARGS);
 
 #endif
 
@@ -184,6 +186,48 @@ static double cosine_angle(struct term_space *ts, int top)
 	return prod / denominator;
 }
 
+static char *
+_trgm_tag(const char *s, size_t max)
+{
+	struct term_space	*ts = NULL;
+	char				*p = NULL, *q = NULL;
+	struct term_vector	**v, *tv;
+
+	if ((p = strdup(s)) == NULL) goto safe_exit;
+	if ((q = (char *)malloc(strlen(s) * 4)) == NULL) goto safe_exit;
+	*q = '\0';
+
+	ts = (struct term_space *)malloc(sizeof(struct term_space));
+	if (ts == NULL) goto safe_exit;
+	
+	RB_INIT(ts);
+
+	ts->seq.tv = (struct term_vector **)malloc(sizeof(struct term_vector *) *
+			strlen(s));
+	if (ts->seq.tv == NULL) goto safe_exit;
+	ts->seq.last = ts->seq.tv;
+
+	if (term_space_add_trgm(ts, p, 0) == -1)
+		goto safe_exit;
+
+	term_space_sort(ts);
+
+	for (v = ts->seq.tv; v < ts->seq.last && max-- > 0; v++) 
+		strcat(q, (*v)->trgm);
+
+	for(tv = RB_MIN(term_space, ts); tv; tv = RB_MIN(term_space, ts)) {
+		RB_REMOVE(term_space, ts, tv);
+		free(tv);
+	}
+
+safe_exit:
+	if (ts->seq.tv) free(ts->seq.tv);
+	if (ts) free(ts);
+	if (p) free(p);
+	if (*q == '\0') { free(q); q = NULL; }
+	return q;
+}
+
 static int
 _trgm_sml(double *score, const char *s, const char *t, int n)
 {
@@ -245,13 +289,50 @@ safe_exit:
 int main()
 {
         double score;
+		char *t = NULL;
 
         printf("retval = %d\n", _trgm_sml(&score, "我 喜欢 北京 天安门", "我 爱 北京 生活", -1));
+        printf("retval = %s\n", (t = _trgm_tag("我喜欢北京", -1)));
         printf("score = %f\n", score );
+		free(t);
         return 0;
 }
 
 #else
+
+#define VAR_STRLEN(S) (VARSIZE(S) - VARHDRSZ)
+
+Datum trgm_tag(PG_FUNCTION_ARGS)
+{
+	text			*datum, *ret;
+	char			*s = NULL;
+	char			*t = NULL;
+	size_t			len;
+	int				max;
+
+
+	datum = PG_GETARG_TEXT_P(0);
+	max = (int)PG_GETARG_INT32(1);
+
+	s = strndup(VARDATA(datum), VAR_STRLEN(datum));
+
+	if ((t = _trgm_tag(s, max)) != NULL) {
+		len = strlen(t) + 1;
+
+		ret = (text *)palloc(len + VARHDRSZ);
+
+		strcpy(VARDATA(ret), t);
+		SET_VARSIZE(ret, len);
+
+		free(t);
+	} else {
+		PG_RETURN_NULL();
+	}
+
+	free(s);
+
+	PG_RETURN_TEXT_P(ret);
+}
 
 Datum trgm_sml(PG_FUNCTION_ARGS)
 {
@@ -259,24 +340,26 @@ Datum trgm_sml(PG_FUNCTION_ARGS)
 	double			score = 0.0;
 	char			*lhs = NULL;
 	char			*rhs = NULL;
+	int 			max;
 
 
 	datum[0] = PG_GETARG_TEXT_P(0);
 	datum[1] = PG_GETARG_TEXT_P(1);
+	max = (int)PG_GETARG_INT32(2);
 
-#define VAR_STRLEN(S) (VARSIZE(S) - VARHDRSZ)
 
 	lhs = strndup(VARDATA(datum[0]), VAR_STRLEN(datum[0]));
 	rhs = strndup(VARDATA(datum[1]), VAR_STRLEN(datum[1]));
 
-#undef VAR_STRLEN
 
-	_trgm_sml(&score, lhs, rhs, -1);
+	_trgm_sml(&score, lhs, rhs, max);
 
 	free(lhs);
 	free(rhs);
 
 	PG_RETURN_FLOAT8(score);
 }
+
+#undef VAR_STRLEN
 
 #endif
