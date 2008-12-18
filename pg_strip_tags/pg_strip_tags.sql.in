@@ -1,0 +1,2 @@
+set search_path = public;
+create or replace function strip_tags(text) returns text as 'MODULE_PATHNAME', 'strip_tags' language c strict;
