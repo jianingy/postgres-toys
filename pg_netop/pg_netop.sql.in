@@ -1,0 +1,3 @@
+set search_path = public;
+create or replace function netblock_sub(cidr, cidr) returns setof cidr as 'MODULE_PATHNAME', 'netblock_sub' language c strict;
+create or replace function netblock_acc(cidr, cidr) returns setof cidr as 'MODULE_PATHNAME', 'netblock_acc' language c strict;
